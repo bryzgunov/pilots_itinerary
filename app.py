@@ -4,299 +4,283 @@ import tempfile
 import sys
 import importlib.util
 import shutil
+import time
 from datetime import datetime
 
-# Импорт вашего скрипта
-def import_script(script_path):
-    """Динамический импорт Python-скрипта"""
-    spec = importlib.util.spec_from_file_location("custom_script", script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-# Конфигурация страницы
+# Настройки страницы
 st.set_page_config(
     page_title="Обработчик файлов",
     page_icon="🔄",
-    layout="wide"
+    layout="centered"
 )
 
 # Стили
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1E3A8A;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .stButton button {
+    .stButton > button {
+        background-color: #4CAF50;
+        color: white;
+        font-size: 18px;
+        height: 50px;
         width: 100%;
-        height: 3rem;
-        font-size: 1.2rem;
+        border-radius: 10px;
+        border: none;
     }
-    .success-box {
-        padding: 20px;
+    .stButton > button:hover {
+        background-color: #45a049;
+    }
+    .success-msg {
         background-color: #d4edda;
+        color: #155724;
+        padding: 15px;
         border-radius: 10px;
         border: 1px solid #c3e6cb;
+        margin: 10px 0;
+    }
+    .error-msg {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #f5c6cb;
+        margin: 10px 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Заголовок
-st.markdown('<h1 class="main-header">🔄 Обработчик файлов</h1>', unsafe_allow_html=True)
-st.markdown("---")
+st.title("📁 Обработчик файлов")
+st.markdown("Загрузите файл, и он будет автоматически обработан")
 
-# Боковая панель
-with st.sidebar:
-    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=100)
-    st.title("ℹ️ О сервисе")
+# Функция для импорта вашего скрипта
+def import_my_script():
+    """Пытается импортировать ваш скрипт обработки"""
+    script_name = "your_script.py"
     
-    st.markdown("""
-    ### 📝 Описание
-    Этот сервис обрабатывает ваши файлы
-    с помощью кастомного Python-скрипта.
+    if not os.path.exists(script_name):
+        return None
     
-    ### ⚙️ Технологии
-    - **Frontend**: Streamlit
-    - **Хостинг**: Streamlit Cloud
-    - **Обработка**: Python
+    try:
+        spec = importlib.util.spec_from_file_location("my_script", script_name)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception as e:
+        st.error(f"Ошибка загрузки скрипта: {str(e)}")
+        return None
+
+# Функция обработки файла
+def process_uploaded_file(uploaded_file):
+    """Обрабатывает загруженный файл"""
     
-    ### 🛡️ Безопасность
-    - Файлы удаляются после обработки
-    - Нет постоянного хранения
-    - Все операции временные
-    """)
+    # Создаем прогресс-бар
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    # Статус
-    st.divider()
-    st.caption(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.caption("v1.0 | Streamlit Cloud")
+    # Шаг 1: Сохранение файла
+    status_text.text("🔄 Сохраняю файл...")
+    progress_bar.progress(20)
+    
+    # Создаем временный файл для ввода
+    with tempfile.NamedTemporaryFile(delete=False, 
+                                   suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_input:
+        tmp_input.write(uploaded_file.getvalue())
+        input_path = tmp_input.name
+    
+    # Шаг 2: Подготовка выходного файла
+    status_text.text("🔄 Подготавливаю обработку...")
+    progress_bar.progress(40)
+    
+    # Генерируем имя выходного файла
+    original_name = os.path.splitext(uploaded_file.name)[0]
+    extension = os.path.splitext(uploaded_file.name)[1] or ".processed"
+    output_filename = f"{original_name}_processed{extension}"
+    output_path = os.path.join(tempfile.gettempdir(), output_filename)
+    
+    # Шаг 3: Импорт и выполнение вашего скрипта
+    status_text.text("🔄 Загружаю скрипт обработки...")
+    progress_bar.progress(60)
+    
+    try:
+        # Пытаемся импортировать ваш скрипт
+        my_script = import_my_script()
+        
+        if my_script is None:
+            # Если скрипта нет, используем демо-обработку
+            status_text.text("⚠️ Скрипт не найден, использую демо-режим...")
+            
+            # Простая демо-обработка
+            if uploaded_file.type and 'text' in uploaded_file.type.lower():
+                # Текстовый файл
+                with open(input_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                # Простая обработка
+                processed_content = content + "\n\n[Обработано в демо-режиме]"
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(processed_content)
+            else:
+                # Бинарный файл - просто копируем
+                shutil.copy(input_path, output_path)
+        else:
+            # Используем ваш скрипт
+            status_text.text("🔄 Выполняю обработку...")
+            
+            # Вариант 1: Если есть функция process()
+            if hasattr(my_script, 'process'):
+                my_script.process(input_path, output_path)
+                
+            # Вариант 2: Если есть функция main()
+            elif hasattr(my_script, 'main'):
+                # Сохраняем оригинальные аргументы
+                old_argv = sys.argv.copy()
+                sys.argv = ["your_script.py", input_path, output_path]
+                my_script.main()
+                sys.argv = old_argv
+                
+            # Вариант 3: Если нет нужных функций
+            else:
+                st.warning("В скрипте нет функций process() или main(). Использую демо-режим.")
+                shutil.copy(input_path, output_path)
+        
+        progress_bar.progress(80)
+        
+        # Шаг 4: Проверка результата
+        status_text.text("🔄 Проверяю результат...")
+        
+        if not os.path.exists(output_path):
+            raise Exception("Обработанный файл не создан")
+        
+        progress_bar.progress(100)
+        status_text.text("✅ Обработка завершена!")
+        time.sleep(0.5)
+        
+        # Очистка
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Читаем результат
+        with open(output_path, 'rb') as f:
+            processed_data = f.read()
+        
+        # Удаляем временные файлы
+        try:
+            os.unlink(input_path)
+            os.unlink(output_path)
+        except:
+            pass
+        
+        return processed_data, output_filename
+    
+    except Exception as e:
+        # Очистка при ошибке
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Удаляем временные файлы
+        try:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+        except:
+            pass
+        
+        raise e
 
 # Основной интерфейс
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col2:
-    st.info("""
-    ### 📱 Как использовать:
-    1. Нажмите кнопку ниже
-    2. Загрузите файл с телефона/компьютера
-    3. Дождитесь обработки
-    4. Скачайте результат
-    """)
-
-# Кнопка запуска
-if st.button("🚀 НАЧАТЬ ОБРАБОТКУ ФАЙЛА", type="primary", use_container_width=True):
-    
-    # Загрузка файла
-    uploaded_file = st.file_uploader(
-        "📤 Перетащите файл или нажмите для выбора",
-        type=None,
-        help="Максимальный размер файла: 200MB",
-        key="file_uploader_main"
-    )
-    
-    if uploaded_file is not None:
-        # Информация о файле
-        file_details = {
-            "Имя файла": uploaded_file.name,
-            "Тип файла": uploaded_file.type or "Не определен",
-            "Размер": f"{uploaded_file.size / 1024:.2f} KB"
-        }
-        
-        st.write("📋 **Информация о файле:**")
-        st.json(file_details)
-        
-        # Кнопка обработки
-        if st.button("🔄 ОБРАБОТАТЬ ФАЙЛ", type="secondary", use_container_width=True):
-            with st.spinner("⏳ Идет обработка файла... Пожалуйста, подождите"):
-                # Прогресс-бар
-                progress_bar = st.progress(0)
-                
-                # Создаем временные файлы
-                import tempfile
-                
-                # Входной файл
-                with tempfile.NamedTemporaryFile(delete=False, 
-                                               suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_in:
-                    tmp_in.write(uploaded_file.getvalue())
-                    input_path = tmp_in.name
-                
-                progress_bar.progress(30)
-                
-                # Выходной файл
-                original_name = os.path.splitext(uploaded_file.name)[0]
-                extension = os.path.splitext(uploaded_file.name)[1] or ".processed"
-                output_filename = f"{original_name}_ОБРАБОТАННЫЙ{extension}"
-                output_path = os.path.join(tempfile.gettempdir(), output_filename)
-                
-                try:
-                    progress_bar.progress(50)
-                    
-                    # ВАША ЛОГИКА ОБРАБОТКИ - ВАРИАНТ 1: Использование вашего скрипта
-                    if os.path.exists("your_script.py"):
-                        st.info("🔍 Обнаружен ваш скрипт: your_script.py")
-                        
-                        # Импортируем ваш скрипт
-                        try:
-                            your_module = import_script("your_script.py")
-                            
-                            # Вызываем функцию (адаптируйте под ваш случай)
-                            if hasattr(your_module, 'process'):
-                                your_module.process(input_path, output_path)
-                                st.success("✅ Обработка через функцию process() завершена")
-                                
-                            elif hasattr(your_module, 'main'):
-                                # Сохраняем старые аргументы
-                                old_argv = sys.argv
-                                sys.argv = ["your_script.py", input_path, output_path]
-                                your_module.main()
-                                sys.argv = old_argv
-                                st.success("✅ Обработка через main() завершена")
-                                
-                            else:
-                                st.warning("⚠️ Не найдены функции process() или main(), копируем файл")
-                                shutil.copy(input_path, output_path)
-                                
-                        except Exception as script_error:
-                            st.error(f"❌ Ошибка в вашем скрипте: {str(script_error)}")
-                            # Резервный вариант - копирование
-                            shutil.copy(input_path, output_path)
-                    
-                    # ВАРИАНТ 2: Если скрипта нет - демо-обработка
-                    else:
-                        st.warning("⚠️ Файл your_script.py не найден, выполняем демо-обработку")
-                        
-                        # Определяем тип файла
-                        if uploaded_file.type and 'text' in uploaded_file.type:
-                            # Текстовый файл
-                            with open(input_path, 'r', encoding='utf-8', errors='ignore') as f_in:
-                                content = f_in.read()
-                            
-                            # Простая обработка текста
-                            processed_content = f"{content}\n\n[Processed via Streamlit Cloud]"
-                            
-                            with open(output_path, 'w', encoding='utf-8') as f_out:
-                                f_out.write(processed_content)
-                                
-                        else:
-                            # Бинарный файл - просто копируем
-                            shutil.copy(input_path, output_path)
-                    
-                    progress_bar.progress(80)
-                    
-                    # Проверяем, создан ли выходной файл
-                    if not os.path.exists(output_path):
-                        raise FileNotFoundError("Выходной файл не создан")
-                    
-                    # Узнаем размер выходного файла
-                    output_size = os.path.getsize(output_path)
-                    
-                    progress_bar.progress(100)
-                    
-                    # Успешное завершение
-                    st.markdown('<div class="success-box">', unsafe_allow_html=True)
-                    st.success("✅ Файл успешно обработан!")
-                    st.markdown(f"**Размер обработанного файла:** {output_size / 1024:.2f} KB")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # Кнопка скачивания
-                    with open(output_path, 'rb') as f:
-                        file_bytes = f.read()
-                    
-                    st.download_button(
-                        label=f"⬇️ СКАЧАТЬ: {output_filename}",
-                        data=file_bytes,
-                        file_name=output_filename,
-                        mime=uploaded_file.type or "application/octet-stream",
-                        type="primary",
-                        use_container_width=True
-                    )
-                    
-                    # Очистка временных файлов
-                    try:
-                        os.unlink(input_path)
-                        os.unlink(output_path)
-                        st.caption("🗑️ Временные файлы удалены")
-                    except:
-                        pass
-                    
-                except Exception as e:
-                    progress_bar.progress(100)
-                    st.error(f"❌ Ошибка при обработке файла")
-                    
-                    # Детальная информация об ошибке
-                    with st.expander("🔧 Детали ошибки"):
-                        st.code(f"""
-Ошибка: {str(e)}
-Тип: {type(e).__name__}
-
-Путь к входному файлу: {input_path}
-Путь к выходному файлу: {output_path}
-
-Размер входного файла: {uploaded_file.size} байт
-Тип файла: {uploaded_file.type}
-                        """)
-                    
-                    # Пытаемся очистить временные файлы
-                    try:
-                        if os.path.exists(input_path):
-                            os.unlink(input_path)
-                        if os.path.exists(output_path):
-                            os.unlink(output_path)
-                    except:
-                        pass
-
-# Разделитель
 st.markdown("---")
 
-# Инструкция по настройке
-with st.expander("⚙️ Как подключить свой скрипт?"):
+# Загрузка файла
+uploaded_file = st.file_uploader(
+    "Выберите файл для обработки",
+    type=None,
+    help="Поддерживаются любые типы файлов"
+)
+
+# Информация о файле
+if uploaded_file is not None:
+    # Показываем информацию о файле
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Имя файла", uploaded_file.name)
+    
+    with col2:
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        st.metric("Размер", f"{file_size_mb:.2f} MB")
+    
+    with col3:
+        file_type = uploaded_file.type if uploaded_file.type else "Неизвестно"
+        st.metric("Тип", file_type)
+    
+    # Кнопка обработки (или автоматическая обработка)
+    st.markdown("---")
+    
+    # Автоматически начинаем обработку или ждем нажатия кнопки
+    auto_process = st.checkbox("Начать обработку сразу после загрузки", value=True)
+    
+    if auto_process or st.button("🚀 Начать обработку", type="primary", use_container_width=True):
+        try:
+            # Обрабатываем файл
+            with st.spinner("Обработка файла..."):
+                processed_data, output_filename = process_uploaded_file(uploaded_file)
+            
+            # Показываем успешное сообщение
+            st.markdown('<div class="success-msg">✅ Файл успешно обработан!</div>', unsafe_allow_html=True)
+            
+            # Кнопка скачивания
+            st.download_button(
+                label=f"⬇️ Скачать обработанный файл: {output_filename}",
+                data=processed_data,
+                file_name=output_filename,
+                mime=uploaded_file.type or "application/octet-stream",
+                type="primary",
+                use_container_width=True
+            )
+            
+            # Информация о завершении
+            st.balloons()
+            
+        except Exception as e:
+            st.markdown(f'<div class="error-msg">❌ Ошибка: {str(e)}</div>', unsafe_allow_html=True)
+            
+            # Кнопка для повторной попытки
+            if st.button("🔄 Попробовать снова", type="secondary"):
+                st.rerun()
+
+# Боковая панель с информацией
+with st.sidebar:
+    st.header("ℹ️ Информация")
+    
     st.markdown("""
-    ### 1. Создайте файл `your_script.py`
+    ### Как это работает:
+    1. **Загрузите файл** с вашего устройства
+    2. **Система автоматически** его обработает
+    3. **Скачайте результат**
     
-    ```python
-    # your_script.py
-    import sys
+    ### Ваш скрипт:
+    - Создайте файл `your_script.py`
+    - Добавьте функцию `process(input_path, output_path)`
+    - Загрузите в ту же папку
     
-    def process(input_path, output_path):
-        \"""
-        Обработка файла
-        \"""
-        # Ваш код обработки здесь
-        with open(input_path, 'r') as f_in:
-            data = f_in.read()
-        
-        # Пример: преобразование текста
-        processed = data.upper()
-        
-        with open(output_path, 'w') as f_out:
-            f_out.write(processed)
-    
-    # ИЛИ если используете main()
-    def main():
-        if len(sys.argv) == 3:
-            process(sys.argv[1], sys.argv[2])
-        else:
-            print("Использование: python your_script.py input output")
-    
-    if __name__ == "__main__":
-        main()
-    ```
-    
-    ### 2. Добавьте зависимости в `requirements.txt`
-    
-    ```txt
-    streamlit>=1.28.0
-    # ваши библиотеки
-    pandas>=2.0.0
-    numpy>=1.24.0
-    ```
-    
-    ### 3. Загрузите оба файла в репозиторий GitHub
+    ### Поддержка:
+    - Все типы файлов
+    - До 200MB на файл
+    - Автоудаление после обработки
     """)
+    
+    # Проверка наличия скрипта
+    st.markdown("---")
+    if os.path.exists("your_script.py"):
+        st.success("✅ Скрипт your_script.py найден")
+    else:
+        st.warning("⚠️ Скрипт your_script.py не найден")
+        st.info("Создайте файл your_script.py с функцией process()")
+    
+    # Время
+    st.markdown("---")
+    st.caption(f"Время: {datetime.now().strftime('%H:%M:%S')}")
 
 # Футер
 st.markdown("---")
-st.caption("✨ Веб-сервис для обработки файлов | Создано с помощью Streamlit")
+st.caption("Веб-сервис для обработки файлов | Создано с Streamlit")
