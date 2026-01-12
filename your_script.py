@@ -1,90 +1,81 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Ваш скрипт для обработки файлов
-"""
-
-import sys
+# your_script.py - демо-скрипт для тестирования
 import os
+import time
 
 def process(input_path, output_path):
     """
-    Основная функция обработки файла
-    Адаптируйте эту функцию под вашу логику
+    Простая функция обработки файла для демонстрации
     """
-    print(f"Обработка файла: {input_path} -> {output_path}")
+    print(f"Начинаю обработку: {input_path} -> {output_path}")
     
-    # Определяем, текстовый ли это файл
-    try:
-        # Пробуем прочитать как текст
-        with open(input_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        
-        # ВАША ЛОГИКА ОБРАБОТКИ ТЕКСТА ЗДЕСЬ
-        # Например: преобразование текста
-        processed_content = content.upper()
-        
-        # Добавляем метку обработки
-        processed_content += "\n\n[Файл обработан через your_script.py]"
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(processed_content)
-            
-        print(f"Текстовый файл обработан успешно")
-        return True
-        
-    except UnicodeDecodeError:
-        # Если не текстовый, обрабатываем как бинарный
-        print("Обнаружен бинарный файл")
+    # Проверяем, существует ли файл
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Файл не найден: {input_path}")
+    
+    # Определяем тип файла по расширению
+    file_ext = os.path.splitext(input_path)[1].lower()
+    
+    # Для текстовых файлов
+    if file_ext in ['.txt', '.csv', '.json', '.xml', '.html', '.py', '.js']:
         try:
-            with open(input_path, 'rb') as f_in, open(output_path, 'wb') as f_out:
-                data = f_in.read()
-                
-                # ВАША ЛОГИКА ОБРАБОТКИ БИНАРНЫХ ДАННЫХ ЗДЕСЬ
-                # Например: просто копируем
-                f_out.write(data)
-                
-                # Можно добавить заголовок
-                header = b"\n\n[Binary file processed]\n"
-                f_out.write(header)
-                
-            print(f"Бинарный файл обработан успешно")
-            return True
+            # Пытаемся прочитать как текст
+            with open(input_path, 'r', encoding='utf-8') as f:
+                content = f.read()
             
-        except Exception as e:
-            print(f"Ошибка при обработке бинарного файла: {e}")
-            return False
+            # Простая обработка текста
+            processed = f"""=== НАЧАЛО ОБРАБОТАННОГО ФАЙЛА ===
 
-def main():
-    """
-    Точка входа для запуска из командной строки
-    """
-    if len(sys.argv) != 3:
-        print("Использование: python your_script.py <входной_файл> <выходной_файл>")
-        print(f"Получено аргументов: {len(sys.argv)}")
-        for i, arg in enumerate(sys.argv):
-            print(f"  {i}: {arg}")
-        sys.exit(1)
+Исходный файл: {os.path.basename(input_path)}
+Время обработки: {time.strftime('%Y-%m-%d %H:%M:%S')}
+Размер исходного файла: {os.path.getsize(input_path)} байт
+
+{content}
+
+=== КОНЕЦ ОБРАБОТАННОГО ФАЙЛА ===
+Обработано скриптом your_script.py
+"""
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(processed)
+                
+            print(f"Текстовый файл обработан: {output_path}")
+            
+        except UnicodeDecodeError:
+            # Если не удалось прочитать как текст, обрабатываем как бинарный
+            process_binary(input_path, output_path)
     
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-    
-    if not os.path.exists(input_file):
-        print(f"Ошибка: входной файл не найден: {input_file}")
-        sys.exit(1)
-    
-    print(f"Начинаю обработку...")
-    print(f"Входной файл: {input_file}")
-    print(f"Выходной файл: {output_file}")
-    
-    success = process(input_file, output_file)
-    
-    if success:
-        print("✅ Обработка завершена успешно!")
-        sys.exit(0)
+    # Для бинарных файлов
     else:
-        print("❌ Ошибка при обработке файла")
-        sys.exit(1)
+        process_binary(input_path, output_path)
 
+def process_binary(input_path, output_path):
+    """Обработка бинарных файлов"""
+    with open(input_path, 'rb') as f_in, open(output_path, 'wb') as f_out:
+        # Читаем файл
+        data = f_in.read()
+        
+        # Добавляем заголовок
+        header = f"=== БИНАРНЫЙ ФАЙЛ ===\n"
+        header += f"Имя: {os.path.basename(input_path)}\n"
+        header += f"Размер: {len(data)} байт\n"
+        header += f"Время: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        header += "===================\n\n"
+        
+        # Пишем заголовок и данные
+        f_out.write(header.encode('utf-8'))
+        f_out.write(data)
+        
+        # Добавляем футер
+        footer = b"\n\n=== КОНЕЦ ФАЙЛА ==="
+        f_out.write(footer)
+    
+    print(f"Бинарный файл обработан: {output_path}")
+
+# Для запуска из командной строки
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) == 3:
+        process(sys.argv[1], sys.argv[2])
+        print("✅ Обработка завершена!")
+    else:
+        print("Использование: python your_script.py <входной_файл> <выходной_файл>")
