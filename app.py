@@ -3,14 +3,13 @@ import os
 import tempfile
 import sys
 import importlib.util
-import shutil
 import time
 from datetime import datetime
 
 # Настройки страницы
 st.set_page_config(
-    page_title="PDF Парсер маршрутных листов",
-    page_icon="📋",
+    page_title="PDF Парсер авиационных листов",
+    page_icon="✈️",
     layout="centered"
 )
 
@@ -25,6 +24,7 @@ st.markdown("""
         width: 100%;
         border-radius: 10px;
         border: none;
+        margin-top: 20px;
     }
     .stButton > button:hover {
         background-color: #45a049;
@@ -53,236 +53,238 @@ st.markdown("""
         border: 1px solid #b8daff;
         margin: 10px 0;
     }
+    .file-info {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #007bff;
+        margin: 10px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Заголовок
-st.title("📋 Парсер PDF маршрутных листов")
-st.markdown("Загрузите PDF файл маршрутного листа для автоматического парсинга в Excel")
+st.title("✈️ Парсер авиационных листов")
+st.markdown("Загрузите два PDF файла для автоматического парсинга в Excel")
 
-# Информация о поддерживаемом формате
+# Информация о формате
 st.markdown("""
 <div class="info-box">
-<h4>📌 Поддерживаемый формат PDF:</h4>
+<h4>📌 Требования к файлам:</h4>
 <ul>
-<li>Маршрутные листы авиакомпаний</li>
-<li>Должна присутствовать строка заголовка: "WAYPOINT AIRWAY HDG CRS ALT CMP DIR/SPD..."</li>
-<li>Только первая страница документа</li>
+<li><strong>Файл 1:</strong> Должен содержать слово "Takeoff" в начале (Takeoff file)</li>
+<li><strong>Файл 2:</strong> Не должен содержать "Takeoff" (Main route file)</li>
+<li>Оба файла должны быть в формате PDF</li>
+<li>Будет обработана только первая страница каждого файла</li>
 </ul>
 </div>
 """, unsafe_allow_html=True)
 
-# Функция для импорта вашего скрипта
+# Функция для импорта скрипта
 def import_my_script():
-    """Пытается импортировать ваш скрипт обработки"""
+    """Импортирует ваш скрипт обработки"""
     script_name = "your_script.py"
     
     if not os.path.exists(script_name):
-        st.warning(f"⚠️ Файл {script_name} не найден")
         return None
     
     try:
         spec = importlib.util.spec_from_file_location("my_script", script_name)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        st.success(f"✅ Скрипт {script_name} успешно загружен")
         return module
     except Exception as e:
-        st.error(f"❌ Ошибка загрузки скрипта: {str(e)}")
+        st.error(f"Ошибка загрузки скрипта: {str(e)}")
         return None
-
-# Функция обработки PDF файла
-def process_pdf_file(uploaded_file):
-    """Обрабатывает загруженный PDF файл"""
-    
-    # Создаем прогресс-бар
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # Шаг 1: Сохранение PDF файла
-    status_text.text("🔄 Сохраняю PDF файл...")
-    progress_bar.progress(10)
-    
-    # Создаем временный файл для PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
-        tmp_pdf.write(uploaded_file.getvalue())
-        input_pdf_path = tmp_pdf.name
-    
-    # Шаг 2: Подготовка выходного Excel файла
-    status_text.text("🔄 Подготавливаю Excel файл...")
-    progress_bar.progress(20)
-    
-    # Генерируем имя выходного файла
-    original_name = os.path.splitext(uploaded_file.name)[0]
-    output_excel_name = f"{original_name}_parsed.xlsx"
-    output_excel_path = os.path.join(tempfile.gettempdir(), output_excel_name)
-    
-    # Шаг 3: Импорт и выполнение вашего скрипта
-    status_text.text("🔄 Загружаю парсер PDF...")
-    progress_bar.progress(30)
-    
-    try:
-        # Импортируем ваш скрипт
-        my_script = import_my_script()
-        
-        if my_script is None:
-            raise Exception("Скрипт обработки не найден или не загружен")
-        
-        # Проверяем наличие функции process
-        if not hasattr(my_script, 'process'):
-            raise Exception("В скрипте не найдена функция 'process(input_path, output_path)'")
-        
-        # Шаг 4: Выполнение обработки
-        status_text.text("🔄 Парсю PDF файл...")
-        progress_bar.progress(50)
-        
-        # Вызываем вашу функцию обработки
-        success = my_script.process(input_pdf_path, output_excel_path)
-        
-        if not success:
-            raise Exception("Обработка завершилась неудачно")
-        
-        status_text.text("🔄 Форматирую результат...")
-        progress_bar.progress(80)
-        
-        # Проверяем, создан ли выходной файл
-        if not os.path.exists(output_excel_path):
-            raise Exception("Выходной Excel файл не создан")
-        
-        # Читаем результат
-        with open(output_excel_path, 'rb') as f:
-            excel_data = f.read()
-        
-        progress_bar.progress(100)
-        status_text.text("✅ Обработка завершена!")
-        time.sleep(0.5)
-        
-        # Очистка
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Удаляем временные файлы
-        try:
-            os.unlink(input_pdf_path)
-            os.unlink(output_excel_path)
-        except:
-            pass
-        
-        return excel_data, output_excel_name
-    
-    except Exception as e:
-        # Очистка при ошибке
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Удаляем временные файлы
-        try:
-            if os.path.exists(input_pdf_path):
-                os.unlink(input_pdf_path)
-            if os.path.exists(output_excel_path):
-                os.unlink(output_excel_path)
-        except:
-            pass
-        
-        raise e
 
 # Основной интерфейс
 st.markdown("---")
+st.subheader("📤 Загрузка файлов")
 
-# Загрузка файла
-uploaded_file = st.file_uploader(
-    "Выберите PDF файл маршрутного листа",
-    type=['pdf'],
-    help="Поддерживаются только PDF файлы"
-)
+# Загрузка двух файлов
+col1, col2 = st.columns(2)
 
-# Информация о файле
-if uploaded_file is not None:
-    # Показываем информацию о файле
-    col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown("### Файл 1")
+    st.markdown("*(должен содержать 'Takeoff')*")
+    file1 = st.file_uploader(
+        "Выберите первый PDF файл",
+        type=['pdf'],
+        key="file1",
+        label_visibility="collapsed"
+    )
+
+with col2:
+    st.markdown("### Файл 2")
+    st.markdown("*(не должен содержать 'Takeoff')*")
+    file2 = st.file_uploader(
+        "Выберите второй PDF файл",
+        type=['pdf'],
+        key="file2",
+        label_visibility="collapsed"
+    )
+
+# Отображение информации о загруженных файлах
+if file1 is not None and file2 is not None:
+    st.markdown("---")
+    st.subheader("📋 Информация о файлах")
+    
+    # Проверка Takeoff для файла 1
+    file1_preview = file1.getvalue()[:1000].decode('latin-1', errors='ignore')
+    file1_has_takeoff = "takeoff" in file1_preview.lower()
+    
+    # Проверка Takeoff для файла 2
+    file2_preview = file2.getvalue()[:1000].decode('latin-1', errors='ignore')
+    file2_has_takeoff = "takeoff" in file2_preview.lower()
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.metric("Имя файла", uploaded_file.name[:20] + "..." if len(uploaded_file.name) > 20 else uploaded_file.name)
+        st.markdown(f"""
+        <div class="file-info">
+        <strong>{file1.name}</strong><br>
+        Размер: {file1.size / 1024:.1f} KB<br>
+        Takeoff: {'✅ Да' if file1_has_takeoff else '❌ Нет'}
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        file_size_mb = uploaded_file.size / (1024 * 1024)
-        st.metric("Размер", f"{file_size_mb:.2f} MB")
+        st.markdown(f"""
+        <div class="file-info">
+        <strong>{file2.name}</strong><br>
+        Размер: {file2.size / 1024:.1f} KB<br>
+        Takeoff: {'✅ Да' if file2_has_takeoff else '❌ Нет'}
+        </div>
+        """, unsafe_allow_html=True)
     
-    with col3:
-        st.metric("Тип", "PDF")
-    
-    # Кнопка обработки
-    st.markdown("---")
-    
-    if st.button("🚀 Начать парсинг PDF", type="primary", use_container_width=True):
-        try:
-            # Обрабатываем файл
-            with st.spinner("Парсинг PDF файла... Это может занять несколько секунд"):
-                excel_data, output_filename = process_pdf_file(uploaded_file)
-            
-            # Показываем успешное сообщение
-            st.markdown('<div class="success-msg">✅ PDF файл успешно обработан и преобразован в Excel!</div>', unsafe_allow_html=True)
-            
-            # Кнопка скачивания
-            st.download_button(
-                label=f"⬇️ Скачать Excel файл: {output_filename}",
-                data=excel_data,
-                file_name=output_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True
-            )
-            
-            # Информация о завершении
-            st.balloons()
-            
-            # Дополнительная информация
-            st.info("💡 Файл содержит распарсенные данные из маршрутного листа в табличном формате.")
-            
-        except Exception as e:
-            st.markdown(f'<div class="error-msg">❌ Ошибка обработки: {str(e)}</div>', unsafe_allow_html=True)
-            
-            # Кнопка для повторной попытки
-            if st.button("🔄 Попробовать снова", type="secondary"):
-                st.rerun()
+    # Проверка комбинации файлов
+    if file1_has_takeoff and file2_has_takeoff:
+        st.error("❌ Оба файла содержат 'Takeoff'. Нужен один файл с Takeoff и один без.")
+    elif not file1_has_takeoff and not file2_has_takeoff:
+        st.error("❌ Ни один файл не содержит 'Takeoff'. Нужен один файл с Takeoff.")
+    else:
+        st.success("✅ Файлы загружены правильно!")
+        
+        # Кнопка обработки
+        if st.button("🚀 Начать обработку файлов", type="primary", use_container_width=True):
+            try:
+                # Импортируем скрипт
+                my_script = import_my_script()
+                
+                if my_script is None:
+                    raise Exception("Скрипт обработки не найден")
+                
+                if not hasattr(my_script, 'process'):
+                    raise Exception("В скрипте не найдена функция 'process'")
+                
+                # Создаем прогресс-бар
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # Обработка файлов
+                with st.spinner("Обработка файлов..."):
+                    status_text.text("🔄 Загружаю и анализирую файлы...")
+                    progress_bar.progress(30)
+                    
+                    # Получаем содержимое файлов
+                    file1_content = file1.getvalue()
+                    file2_content = file2.getvalue()
+                    
+                    status_text.text("🔄 Выполняю парсинг PDF...")
+                    progress_bar.progress(60)
+                    
+                    # Вызываем функцию обработки
+                    excel_bytes = my_script.process(file1_content, file2_content)
+                    
+                    status_text.text("🔄 Форматирую результат...")
+                    progress_bar.progress(90)
+                    
+                    # Генерируем имя выходного файла
+                    if file1_has_takeoff:
+                        base_name = os.path.splitext(file2.name)[0]
+                    else:
+                        base_name = os.path.splitext(file1.name)[0]
+                    
+                    output_filename = f"{base_name}_Flight_Log.xlsx"
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Обработка завершена!")
+                    time.sleep(0.5)
+                
+                # Очистка
+                progress_bar.empty()
+                status_text.empty()
+                
+                # Показываем успешное сообщение
+                st.markdown('<div class="success-msg">✅ Файлы успешно обработаны и объединены в Excel!</div>', unsafe_allow_html=True)
+                
+                # Кнопка скачивания
+                st.download_button(
+                    label=f"⬇️ Скачать Excel файл: {output_filename}",
+                    data=excel_bytes,
+                    file_name=output_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+                
+                # Дополнительная информация
+                st.info("""
+                📊 Файл содержит:
+                - Лист "Основное": ключевые данные из PDF
+                - Лист "Main_Route_Grid": распарсенная таблица маршрута
+                """)
+                
+                # Анимация успеха
+                st.balloons()
+                
+            except Exception as e:
+                st.markdown(f'<div class="error-msg">❌ Ошибка обработки: {str(e)}</div>', unsafe_allow_html=True)
+                
+                # Кнопка для повторной попытки
+                if st.button("🔄 Попробовать снова", type="secondary"):
+                    st.rerun()
 
-# Боковая панель с информацией
+elif file1 is not None or file2 is not None:
+    st.warning("⚠️ Пожалуйста, загрузите оба файла для продолжения")
+
+# Боковая панель
 with st.sidebar:
-    st.header("ℹ️ О парсере")
+    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=100)
+    st.title("ℹ️ О сервисе")
     
     st.markdown("""
     ### Как это работает:
-    1. **Загрузите PDF** маршрутного листа
-    2. **Система автоматически** найдет таблицу
-    3. **Извлечет данные** по сетке координат
-    4. **Сохранит в Excel** с форматированием
+    1. **Загрузите 2 PDF файла**
+    2. **Система определит** Takeoff файл
+    3. **Обработает** основной файл
+    4. **Создаст Excel** с результатами
+    
+    ### Особенности:
+    - Автоматическое определение Takeoff
+    - Парсинг таблиц по координатам
+    - Два листа в Excel
+    - Автоформатирование
     
     ### Технологии:
-    - **PyMuPDF** для чтения PDF
-    - **Pandas** для обработки данных
-    - **OpenPyXL** для создания Excel
-    
-    ### Ограничения:
-    - Только первая страница
-    - Строгий формат заголовка
-    - До 50MB на файл
+    - PyMuPDF для чтения PDF
+    - Pandas для обработки данных
+    - OpenPyXL для Excel
     """)
     
-    # Проверка наличия скрипта
+    # Проверка скрипта
     st.markdown("---")
     if os.path.exists("your_script.py"):
-        st.success("✅ Скрипт парсера найден")
         try:
-            # Проверяем импорт
             my_script = import_my_script()
             if my_script and hasattr(my_script, 'process'):
-                st.success("✅ Функция process() доступна")
+                st.success("✅ Скрипт готов к работе")
             else:
-                st.error("❌ Функция process() не найдена")
+                st.error("❌ Ошибка в скрипте")
         except:
             st.error("❌ Ошибка импорта скрипта")
     else:
-        st.error("❌ Скрипт your_script.py не найден")
+        st.error("❌ Скрипт не найден")
     
     # Время
     st.markdown("---")
@@ -290,4 +292,4 @@ with st.sidebar:
 
 # Футер
 st.markdown("---")
-st.caption("PDF Парсер маршрутных листов | Создано с Streamlit")
+st.caption("✈️ Парсер авиационных листов | Создано с Streamlit")
