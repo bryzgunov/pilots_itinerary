@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import fitz
 import unicodedata
 import pandas as pd
 from openpyxl import Workbook
@@ -12,7 +12,6 @@ import io
 import os
 import numpy as np
 import re
-import tempfile
 
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 def normalize_ascii(text):
@@ -31,7 +30,6 @@ def is_takeoff_file(pdf_bytes):
         return False
 
 def extract_first_n_lines_from_doc(doc, n=32):
-    """Извлекает первые n строк из PDF документа"""
     page = doc[0]
     blocks = page.get_text("dict")["blocks"]
     blocks.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
@@ -48,7 +46,6 @@ def extract_first_n_lines_from_doc(doc, n=32):
     return lines
 
 def parse_document_with_simple_split(page, target_phrase="All Engines Operating"):
-    """Парсит документ с разделением на левую и правую части"""
     phrase_y_coord = None
     text_instances = page.search_for(target_phrase)
 
@@ -83,7 +80,6 @@ def parse_document_with_simple_split(page, target_phrase="All Engines Operating"
     return left_array, right_array
 
 def extract_variables(arr, suffix):
-    """Извлекает переменные из массива строк"""
     variables = {}
 
     runway_count = 0
@@ -138,7 +134,6 @@ def extract_variables(arr, suffix):
     return variables
 
 def process_runway_variable(runway_value, suffix):
-    """Обрабатывает переменную Runway"""
     if not runway_value:
         return runway_value, runway_value
 
@@ -178,7 +173,6 @@ def process_runway_variable(runway_value, suffix):
         return runway0, runway0
 
 def process_wind_variable(wind_value, runway0_value, suffix):
-    """Обрабатывает переменную Wind"""
     if not wind_value:
         return wind_value, wind_value
 
@@ -366,7 +360,8 @@ def parse_main_route_table(doc):
                 row_data.append(' '.join(cell_texts) if cell_texts else '')
             data_grid.append(row_data)
 
-    return pd.DataFrame(data_grid, columns=exact_columns)
+    df = pd.DataFrame(data_grid, columns=exact_columns)
+    return df
 
 def parse_airport_table(doc):
     """Парсит таблицу аэропортов"""
@@ -385,21 +380,22 @@ def parse_airport_table(doc):
         print(f"Ключевое слово '{target_text}' не найдено.")
         return pd.DataFrame()
 
+    # Поиск координат "AIRPORT"
     words = page_with_table.get_text("words")
     airport_coords = None
     for word in words:
         if word[4].upper() == target_text:
             airport_coords = (word[0], word[1], word[2], word[3])
-            print(f"Координаты 'AIRPORT': x0={airport_coords[0]:.2f}, y0={airport_coords[1]:.2f}")
             break
 
     if airport_coords is None:
         print("Не удалось получить координаты слова 'AIRPORT'.")
         return pd.DataFrame()
 
+    # Определяем XX
     XX_airport = [5, 75, 150, 200, 250, 325, 375, 425, 475, 525, 600]
-    print("Массив XX (аэропорты):", XX_airport)
 
+    # Определяем YY
     YY_airport = []
     YY_airport.append(airport_coords[3] + 2)
 
@@ -407,11 +403,10 @@ def parse_airport_table(doc):
     for word in words:
         if word[4].upper() == "DEST" and word[1] > airport_coords[3]:
             dest_coords = (word[0], word[1], word[2], word[3])
-            print(f"Координаты 'DEST': x0={dest_coords[0]:.2f}, y0={dest_coords[1]:.2f}")
             break
 
     if dest_coords is None:
-        print("Слово 'DEST' не найдено ниже 'AIRPORT'.")
+        # Используем приблизительные координаты
         words_below_airport = [w for w in words if w[1] > airport_coords[3]]
         if words_below_airport:
             min_y0_below = min([w[1] for w in words_below_airport])
@@ -425,8 +420,7 @@ def parse_airport_table(doc):
         YY_airport.append(dest_coords[1] - 2)
         YY_airport.append(dest_coords[3] + 2)
 
-    print("Массив YY (аэропорты):", [f"{val:.2f}" for val in YY_airport])
-
+    # Извлечение текста
     blocks = page_with_table.get_text("dict").get("blocks", [])
     extracted_text_dict = {}
     for block in blocks:
@@ -467,6 +461,7 @@ def extract_airport_maps(doc):
     """Извлекает карты аэропортов с последней страницы"""
     last_page = doc[-1]
     
+    # Извлечение текста построчно
     text_blocks = last_page.get_text("dict")
     lines = []
     for block in text_blocks["blocks"]:
@@ -478,13 +473,13 @@ def extract_airport_maps(doc):
                     lines.append(stripped)
 
     if len(lines) < 4:
-        print("⚠️ На последней странице меньше 4 непустых строк текста!")
-        text_A1 = "DEP LFMQ"
-        text_A28 = "DEST LFMV"
+        text_A1 = "DEP"
+        text_A28 = "DEST"
     else:
         text_A1 = lines[1] if len(lines) > 1 else "DEP"
         text_A28 = lines[3] if len(lines) > 3 else "DEST"
 
+    # Извлечение и обработка изображений
     image_list = last_page.get_images(full=True)
     img_buffers = []
 
@@ -496,19 +491,22 @@ def extract_airport_maps(doc):
             pil_img = PILImage.open(io.BytesIO(image_bytes))
             pil_img = pil_img.resize((500, 500), PILImage.LANCZOS)
             
+            # Сохраняем в буфер памяти
             img_buffer = io.BytesIO()
             pil_img.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
             img_buffers.append(img_buffer)
         except Exception as e:
             print(f"Ошибка при обработке изображения {idx}: {e}")
 
     return text_A1, text_A28, img_buffers
 
-def insert_image_to_generated_sheet(doc, ws):
-    """Вставляет изображение из первой страницы PDF в лист Generated_Sheet"""
+def extract_screenshot_for_generated_sheet(doc):
+    """Извлекает скриншот для вставки в Generated_Sheet"""
     page = doc[0]
-    blocks = page.get_text("dict")["blocks"]
     
+    # Получаем все спаны на странице
+    blocks = page.get_text("dict")["blocks"]
     spans = []
     for block in blocks:
         if "lines" in block:
@@ -527,19 +525,24 @@ def insert_image_to_generated_sheet(doc, ws):
 
     if not spans:
         print("⚠️ Не найдено текстовых элементов на странице")
-        return
+        return None
 
+    # Сортируем спаны
     spans.sort(key=lambda s: (s["y0"], s["x0"]))
+
+    # 1. Самое первое слово на листе
     first_span = spans[0]
     x01 = first_span["x0"]
     y01 = first_span["y0"]
-    
+
+    # 2. Поиск первого вхождения "Route"
     y02 = None
     for span in spans:
         if re.search(r'\bRoute\b', span["text"], re.IGNORECASE):
             y02 = span["y0"]
             break
 
+    # 3. Поиск первого вхождения "Landing Fuel"
     x02 = None
     for span in spans:
         if re.search(r'\bLanding\s+Fuel\b', span["text"], re.IGNORECASE):
@@ -554,35 +557,364 @@ def insert_image_to_generated_sheet(doc, ws):
             if x02:
                 break
 
-    if y02 is not None and x02 is not None:
-        clip_rect = fitz.Rect(
-            x01 - 5,
-            y01 - 3,
-            x02 + 30,
-            y02 - 15
-        )
+    if y02 is None or x02 is None:
+        print("⚠️ Не все необходимые координаты найдены")
+        return None
 
-        if clip_rect.x0 < 0: clip_rect.x0 = 0
-        if clip_rect.y0 < 0: clip_rect.y0 = 0
-        if clip_rect.x1 > page.rect.width: clip_rect.x1 = page.rect.width
-        if clip_rect.y1 > page.rect.height: clip_rect.y1 = page.rect.height
+    # Вычисляем координаты области для вырезания
+    clip_rect = fitz.Rect(
+        x01 - 5,
+        y01 - 3,
+        x02 + 30,
+        y02 - 15
+    )
 
-        if not clip_rect.is_empty and clip_rect.get_area() >= 1:
-            pix = page.get_pixmap(dpi=150, clip=clip_rect)
-            img_data = pix.tobytes("png")
-            image = PILImage.open(io.BytesIO(img_data))
+    # Проверка корректности прямоугольника
+    if clip_rect.x0 < 0: clip_rect.x0 = 0
+    if clip_rect.y0 < 0: clip_rect.y0 = 0
+    if clip_rect.x1 > page.rect.width: clip_rect.x1 = page.rect.width
+    if clip_rect.y1 > page.rect.height: clip_rect.y1 = page.rect.height
 
-            img_buffer = io.BytesIO()
-            image.save(img_buffer, format='PNG')
-            img_buffer.seek(0)
+    if clip_rect.is_empty or clip_rect.get_area() < 1:
+        print(f"⚠️ Некорректная область вырезания: {clip_rect}")
+        return None
 
-            xl_img = XLImage(img_buffer)
+    # Рендерим страницу и вырезаем область
+    pix = page.get_pixmap(dpi=150, clip=clip_rect)
+    img_data = pix.tobytes("png")
+    
+    # Создаем PIL Image
+    image = PILImage.open(io.BytesIO(img_data))
+    
+    # Сохраняем в буфер
+    img_buffer = io.BytesIO()
+    image.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+    
+    return img_buffer
+
+def create_generated_sheet(wb, ws1, ws2, ws3, ws4, ws5, screenshot_buffer=None):
+    """Создает лист Generated_Sheet"""
+    new_sheet_name = "Generated_Sheet"
+    if new_sheet_name in wb.sheetnames:
+        wb.remove(wb[new_sheet_name])
+    ws = wb.create_sheet(title=new_sheet_name)
+
+    # Общий шрифт
+    default_font = Font(name='Helvetica Neue', size=11)
+
+    # Ширина столбцов
+    col_widths = {'A': 5, 'B': 22, 'C': 8, 'D': 8, 'E': 8, 'F': 8, 'G': 8, 'H': 31, 'I': 35}
+    for col, width in col_widths.items():
+        ws.column_dimensions[col].width = width
+
+    # Стили
+    bold_gray_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+    bold_font = Font(name='Helvetica Neue', size=11, bold=True)
+    header_font = Font(name='Helvetica Neue', size=11, bold=True)
+
+    # Границы
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # ПЕРЕМЕННАЯ СМЕЩЕНИЯ
+    offset_rows = 7
+
+    # Убираем границы у первых 7 строк
+    for row in range(1, offset_rows + 1):
+        for col in range(1, 10):  # Теперь до столбца I
+            cell = ws.cell(row=row, column=col)
+            cell.border = Border()
+
+    # Вставляем текст в ячейку A7 (offset_rows)
+    info_row = offset_rows
+    ws.merge_cells(start_row=info_row, start_column=1, end_row=info_row, end_column=8)
+    info_cell = ws.cell(row=info_row, column=1)
+    info_cell.value = "Tacho start: ______ Off Block: ______ Take Off: ______ Tacho end: ______ Landing: ______ On Block: ______"
+    info_cell.font = Font(name='Helvetica Neue', size=9)
+    info_cell.alignment = Alignment(horizontal='left', vertical='center')
+
+    # Заголовки (строки 8–9)
+    header_row_1 = 8
+    header_row_2 = 9
+
+    headers = {
+        f'A{header_row_1}': ('№', 'center', 'top', True, 2),
+        f'B{header_row_1}': ('Waypoint', 'left', 'top', True, 2),
+        f'C{header_row_1}': ('ALT', 'center', 'center', True, 2),
+        f'D{header_row_1}': ('HDG', 'left', 'center', False, 1),
+        f'E{header_row_1}': ('Dist.', 'left', 'center', False, 1),
+        f'F{header_row_1}': ('EFOB', 'left', 'center', False, 1),
+        f'G{header_row_1}': ('ETA', 'left', 'center', False, 1),
+        f'H{header_row_1}': ('Radio', 'left', 'top', True, 2),
+        f'D{header_row_2}': ('CRS', 'right', 'center', False, 1),
+        f'E{header_row_2}': ('Time', 'right', 'center', False, 1),
+        f'F{header_row_2}': ('AFOB', 'right', 'center', False, 1),
+        f'G{header_row_2}': ('ATA', 'right', 'center', False, 1),
+    }
+
+    for cell_ref, (value, h_align, v_align, merge, rows) in headers.items():
+        cell = ws[cell_ref]
+        cell.value = value
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal=h_align, vertical=v_align, wrap_text=False)
+        if merge:
+            col_letter = cell_ref[0]
+            start_row = int(cell_ref[1:])
+            end_row = start_row + rows - 1
+            col_idx = ord(col_letter.upper()) - ord('A') + 1
+            ws.merge_cells(start_row=start_row, start_column=col_idx, end_row=end_row, end_column=col_idx)
+
+    # Фон и жирный шрифт для A8:H9
+    for row in range(header_row_1, header_row_1 + 2):
+        for col in range(1, 9):
+            cell = ws.cell(row=row, column=col)
+            cell.fill = bold_gray_fill
+            cell.font = bold_font
+            cell.border = thin_border
+
+    # Переменные
+    y0 = 5 + offset_rows
+    last_row_main = ws2.max_row
+    x = last_row_main - 3
+
+    # Обработка строк
+    for i in range(1, x + 1):
+        row_offset = y0 + i * 3
+
+        # A: номер с ведущим нулём
+        num_val = i + 1
+        a_val = f"{num_val:02d}"
+        a_cell = ws.cell(row=row_offset, column=1, value=a_val)
+        a_cell.font = default_font
+        a_cell.alignment = Alignment(horizontal='center', vertical='top')
+        if i == x:
+            ws.merge_cells(start_row=row_offset, start_column=1, end_row=row_offset+4, end_column=1)
+        else:
+            ws.merge_cells(start_row=row_offset, start_column=1, end_row=row_offset+2, end_column=1)
+
+        # B: Waypoint
+        b_val = ws2.cell(row=i+3, column=1).value
+        b_cell = ws.cell(row=row_offset, column=2, value=b_val)
+        b_cell.font = default_font
+        b_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        if i == x:
+            ws.merge_cells(start_row=row_offset, start_column=2, end_row=row_offset+4, end_column=2)
+        else:
+            ws.merge_cells(start_row=row_offset, start_column=2, end_row=row_offset+2, end_column=2)
+
+        # C: ALT
+        c_val = ws2.cell(row=i+3, column=5).value
+        if c_val:
+            c_cell = ws.cell(row=row_offset - 1, column=3, value=c_val)
+            c_cell.font = default_font
+            c_cell.alignment = Alignment(horizontal='center', vertical='center')
+            if i < x:
+                ws.merge_cells(start_row=row_offset - 1, start_column=3, end_row=row_offset, end_column=3)
+
+        # D: HDG/CRS
+        d1_val = ws2.cell(row=i+3, column=3).value
+        if d1_val:
+            d1_cell = ws.cell(row=row_offset - 1, column=4, value=d1_val)
+            d1_cell.font = default_font
+            d1_cell.alignment = Alignment(horizontal='left', vertical='center')
+
+        d2_val = ws2.cell(row=i+3, column=4).value
+        if d2_val:
+            d2_cell = ws.cell(row=row_offset, column=4, value=d2_val)
+            d2_cell.font = default_font
+            d2_cell.alignment = Alignment(horizontal='right', vertical='center')
+
+        # E: Dist/Time
+        e1_val = ws2.cell(row=i+3, column=11).value
+        if e1_val:
+            e1_cell = ws.cell(row=row_offset - 1, column=5, value=e1_val)
+            e1_cell.font = default_font
+            e1_cell.alignment = Alignment(horizontal='left', vertical='center')
+
+        e2_val = ws2.cell(row=i+3, column=16).value
+        if e2_val:
+            e2_cell = ws.cell(row=row_offset, column=5, value=e2_val)
+            e2_cell.font = default_font
+            e2_cell.alignment = Alignment(horizontal='right', vertical='center')
+
+        # F: EFOB/AFOB
+        f_val = ws2.cell(row=i+3, column=14).value
+        if f_val:
+            f_cell = ws.cell(row=row_offset - 1, column=6, value=f_val)
+            f_cell.font = default_font
+            f_cell.alignment = Alignment(horizontal='left', vertical='center')
+
+        # H: Radio
+        h_start = row_offset - 1
+        h_end = row_offset
+        ws.merge_cells(start_row=h_start, start_column=8, end_row=h_end, end_column=8)
+        h_cell = ws.cell(row=h_start, column=8)
+        h_cell.font = default_font
+        h_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+        # Последняя строка блока
+        if i < x:
+            merge_range = f"C{row_offset + 1}:H{row_offset + 1}"
+            ws.merge_cells(merge_range)
+            merged_cell = ws.cell(row=row_offset + 1, column=3)
+            merged_cell.font = default_font
+            merged_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+    # Первый блок
+    start_a = 3 + offset_rows
+    start_b = 3 + offset_rows
+
+    ws.merge_cells(start_row=start_a, start_column=1, end_row=start_a+4, end_column=1)
+    a3 = ws.cell(row=start_a, column=1)
+    a3.value = "01"
+    a3.font = default_font
+    a3.alignment = Alignment(horizontal='center', vertical='top')
+
+    b3_val = ws2.cell(row=3, column=1).value
+    ws.merge_cells(start_row=start_b, start_column=2, end_row=start_b+4, end_column=2)
+    b3 = ws.cell(row=start_b, column=2)
+    b3.value = b3_val
+    b3.font = default_font
+    b3.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+    ws.merge_cells(start_row=start_a, start_column=3, end_row=start_a+3, end_column=8)
+    c3 = ws.cell(row=start_a, column=3)
+
+    # Формирование текста для C3
+    h2_val_raw = ws3['H2'].value if ws3['H2'].value else "0"
+    try:
+        h2_val = round(float(h2_val_raw))
+    except (ValueError, TypeError):
+        h2_val = 0
+
+    h2_plus_300 = ((h2_val + 300) // 10 + (1 if (h2_val + 300) % 10 != 0 else 0)) * 10
+
+    # Используем значения с листов
+    atis_val = ws3['D2'].value if ws3['D2'].value else "_____"
+    gnd_val = ws3['G2'].value if ws3['G2'].value else "_____"
+    twr_val = ws3['E2'].value if ws3['E2'].value else "_____"
+    
+    # Безопасное получение значений из ws5
+    exp_rwy = ws5.cell(row=2, column=4).value if ws5.cell(row=2, column=4).value else "_____"
+    rwy = ws5.cell(row=3, column=4).value if ws5.cell(row=3, column=4).value else "_____"
+    length = ws5.cell(row=4, column=4).value if ws5.cell(row=4, column=4).value else "_____"
+    req_dist = ws5.cell(row=9, column=4).value if ws5.cell(row=9, column=4).value else "_____"
+    surface = ws5.cell(row=5, column=4).value if ws5.cell(row=5, column=4).value else "_____"
+    exp_wind = ws5.cell(row=7, column=4).value if ws5.cell(row=7, column=4).value else "_____"
+    exp_qnh = ws5.cell(row=8, column=4).value if ws5.cell(row=8, column=4).value else "_____"
+
+    text_c3 = (
+        f"Departure ({ws4['A1'].value if ws4['A1'].value else '____'}, ______,{h2_val}, {h2_plus_300}, _____ , Exp. RWY: {exp_rwy}\n"
+        f"ATIS: {atis_val}; GND: {gnd_val}; TWR: {twr_val};\n"
+        f"RWY: {rwy}; Length: {length}; Req. Dist.: {req_dist}; Surface: {surface};\n"
+        f"Exp. Wind: {exp_wind}; Exp. QNH: {exp_qnh}; Exp. TWY:_____\n"
+        f"RWY: ____ ; Wind: ________; QNH: _______; Squak: ________"
+    )
+
+    c3.value = text_c3
+    c3.font = Font(name='Helvetica Neue', size=9)
+    c3.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+    # Последний блок
+    final_start_row = y0 + x * 3 + 1
+    final_end_row = final_start_row + 3
+    ws.merge_cells(start_row=final_start_row, start_column=3, end_row=final_end_row, end_column=8)
+    final_cell = ws.cell(row=final_start_row, column=3)
+
+    # Формирование финального текста
+    h3_val_raw = ws3['H3'].value if ws3['H3'].value else "0"
+    try:
+        h3_val = round(float(h3_val_raw))
+    except (ValueError, TypeError):
+        h3_val = 0
+
+    h3_plus_300 = ((h3_val + 300) // 10 + (1 if (h3_val + 300) % 10 != 0 else 0)) * 10
+
+    # Безопасное получение значений из ws5
+    atis_val_f = ws3['D3'].value if ws3['D3'].value else "_____"
+    gnd_val_f = ws3['G3'].value if ws3['G3'].value else "_____"
+    twr_val_f = ws3['E3'].value if ws3['E3'].value else "_____"
+    
+    exp_rwy_f = ws5.cell(row=2, column=6).value if ws5.cell(row=2, column=6).value else "_____"
+    rwy_f = ws5.cell(row=3, column=6).value if ws5.cell(row=3, column=6).value else "_____"
+    length_f = ws5.cell(row=4, column=6).value if ws5.cell(row=4, column=6).value else "_____"
+    req_dist_f = ws5.cell(row=9, column=6).value if ws5.cell(row=9, column=6).value else "_____"
+    surface_f = ws5.cell(row=5, column=6).value if ws5.cell(row=5, column=6).value else "_____"
+    exp_wind_f = ws5.cell(row=7, column=6).value if ws5.cell(row=7, column=6).value else "_____"
+    exp_qnh_f = ws5.cell(row=8, column=6).value if ws5.cell(row=8, column=6).value else "_____"
+
+    text_final = (
+        f"Destination ({ws4['A28'].value if ws4['A28'].value else '____'}, ______,{h3_val}, {h3_plus_300}, _____ , Exp. RWY: {exp_rwy_f}\n"
+        f"ATIS: {atis_val_f}; GND: {gnd_val_f}; TWR: {twr_val_f};\n"
+        f"RWY: {rwy_f}; Length: {length_f}; Req. Dist.: {req_dist_f}; Surface: {surface_f};\n"
+        f"Exp. Wind: {exp_wind_f}; Exp. QNH: {exp_qnh_f}; Exp. TWY:_____\n"
+        f"RWY: ____ ; Wind: ________; QNH: _______; Squak: ________"
+    )
+
+    final_cell.value = text_final
+    final_cell.font = Font(name='Helvetica Neue', size=9)
+    final_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+    # Настройка высоты строк
+    last_output_row = y0 + x * 3 + 4
+    for row_num in range(1, last_output_row + 1):
+        if (start_a <= row_num <= start_a+3) or (final_start_row <= row_num <= final_end_row):
+            ws.row_dimensions[row_num].height = 15
+        else:
+            ws.row_dimensions[row_num].height = 14
+
+    # Применяем границы и шрифт
+    for row in ws.iter_rows(min_row=1, max_row=last_output_row, min_col=1, max_col=8):
+        for cell in row:
+            if cell.font.size != 9:
+                cell.font = default_font
+            if cell.row <= offset_rows:
+                continue
+            cell.border = thin_border
+
+    # Вставляем дополнительный текст
+    final_info_row = final_end_row + 2
+    info_text = (
+        "TEM (Threats error management), CANWE (Crew, Aircraft, Notam, Weather, Environment) \n"
+        "After T/O: Flaps, Lights, Engine        Approach: QNH, Mixture, Fuel, Flaps \n"
+        "Landing: Mixture, Flaps, Lights         After Landing: Heat, Light, Flaps\n"
+        "Waypoint: Top, Track, Altitude, Radio, Engine, Estimates, Area\n"
+        "Diversion: Aircraft Endurance, Terrain, Infrastructure, Weather, Airport\n"
+        "Arrival Briefing (Treats, RWY, Top Of Descent, Integration, Missed Aproach, Holding time, Landing configuration and speed, Taxiway, Apron)"
+    )
+
+    ws.cell(row=final_info_row, column=1, value=info_text)
+    ws.cell(row=final_info_row, column=1).font = Font(name='Helvetica Neue', size=8)
+    ws.cell(row=final_info_row, column=1).alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws.merge_cells(start_row=final_info_row, start_column=1, end_row=final_info_row, end_column=8)
+    ws.row_dimensions[final_info_row].height = 70
+
+    # Настройка разметки страницы
+    ws.page_margins = PageMargins(left=0.2, right=0.2, top=0.3, bottom=0.3, header=0.1, footer=0.1)
+
+    # ВСТАВКА СКРИНШОТА В СТОЛБЕЦ I (если есть)
+    if screenshot_buffer:
+        try:
+            # Создаем изображение для вставки
+            xl_img = XLImage(screenshot_buffer)
+            
+            # Уменьшаем изображение
             scale_factor = 1.8
-            xl_img.width = int(image.size[0] / scale_factor)
-            xl_img.height = int(image.size[1] / scale_factor)
-
-            xl_img.anchor = 'A1'
+            xl_img.width = int(xl_img.width / scale_factor)
+            xl_img.height = int(xl_img.height / scale_factor)
+            
+            # Вставляем изображение в столбец I, строку 1
+            # Это НЕ затрёт данные в столбцах A-H
+            xl_img.anchor = 'I1'
             ws.add_image(xl_img)
+            print("✅ Скриншот вставлен в столбец I листа 'Generated_Sheet'")
+        except Exception as e:
+            print(f"⚠️ Ошибка при вставке скриншота: {e}")
 
 def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
     """
@@ -605,21 +937,23 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
     elif not file1_is_takeoff and not file2_is_takeoff:
         raise ValueError("Ни один из файлов не содержит 'Takeoff'. Нужен один файл с Takeoff.")
     
-    # Определяем, какой файл обрабатывать (не Takeoff)
+    # Определяем, какой файл обрабатывать как основной (не Takeoff)
     if file1_is_takeoff:
-        processing_file_bytes = file2_bytes
-        processing_file_name = file2_name
-        takeoff_file_bytes = file1_bytes
+        main_file_bytes = file2_bytes  # file2 - основной
+        takeoff_file_bytes = file1_bytes  # file1 - Takeoff
+        main_file_name = file2_name
+        takeoff_file_name = file1_name
     else:
-        processing_file_bytes = file1_bytes
-        processing_file_name = file1_name
-        takeoff_file_bytes = file2_bytes
+        main_file_bytes = file1_bytes  # file1 - основной
+        takeoff_file_bytes = file2_bytes  # file2 - Takeoff
+        main_file_name = file1_name
+        takeoff_file_name = file2_name
     
-    print(f"Обрабатываю основной файл: {processing_file_name}")
-    print(f"Takeoff файл: {takeoff_file_bytes}")
-
-    # Открываем оба PDF
-    doc1 = fitz.open(stream=processing_file_bytes, filetype="pdf")
+    print(f"Основной файл: {main_file_name}")
+    print(f"Takeoff файл: {takeoff_file_name}")
+    
+    # Открываем PDF файлы
+    doc1 = fitz.open(stream=main_file_bytes, filetype="pdf")
     doc2 = fitz.open(stream=takeoff_file_bytes, filetype="pdf")
     
     try:
@@ -633,39 +967,31 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
         ws1 = wb.active
         ws1.title = "Основное"
 
-        # Заполняем данные
-        if len(lines) > 0: ws1.cell(row=1, column=1, value=lines[0])
-        if len(lines) > 1: ws1.cell(row=2, column=1, value=lines[1])
-        if len(lines) > 2: ws1.cell(row=1, column=7, value=lines[2])
-        if len(lines) > 3: ws1.cell(row=2, column=7, value=lines[3])
+        ws1.cell(row=1, column=1, value=lines[0] if len(lines) > 0 else "")
+        ws1.cell(row=2, column=1, value=lines[1] if len(lines) > 1 else "")
+        ws1.cell(row=1, column=7, value=lines[2] if len(lines) > 2 else "")
+        ws1.cell(row=2, column=7, value=lines[3] if len(lines) > 3 else "")
 
         block1 = lines[4:18]
         if len(block1) == 14:
             for col in range(7):
-                if col * 2 < len(block1):
-                    ws1.cell(row=4, column=1 + col, value=block1[col * 2])
-                if col * 2 + 1 < len(block1):
-                    ws1.cell(row=5, column=1 + col, value=block1[col * 2 + 1])
+                ws1.cell(row=4, column=1 + col, value=block1[col * 2] if col * 2 < len(block1) else "")
+                ws1.cell(row=5, column=1 + col, value=block1[col * 2 + 1] if col * 2 + 1 < len(block1) else "")
 
         block2 = lines[18:32]
         if len(block2) == 14:
             for col in range(7):
-                if col * 2 < len(block2):
-                    ws1.cell(row=7, column=1 + col, value=block2[col * 2])
-                if col * 2 + 1 < len(block2):
-                    ws1.cell(row=8, column=1 + col, value=block2[col * 2 + 1])
+                ws1.cell(row=7, column=1 + col, value=block2[col * 2] if col * 2 < len(block2) else "")
+                ws1.cell(row=8, column=1 + col, value=block2[col * 2 + 1] if col * 2 + 1 < len(block2) else "")
 
-        # Стилизация
         bold_font = Font(bold=True)
         left_align = Alignment(horizontal="left", vertical="top")
         right_align = Alignment(horizontal="right", vertical="top")
 
         ws1['A1'].font = bold_font
         ws1['A1'].alignment = left_align
-        if ws1['G1'].value:
-            ws1['G1'].alignment = right_align
-        if ws1['G2'].value:
-            ws1['G2'].alignment = right_align
+        ws1['G1'].alignment = right_align
+        ws1['G2'].alignment = right_align
 
         for col in range(1, 8):
             ws1.cell(row=4, column=col).font = bold_font
@@ -697,8 +1023,10 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
         print("Парсинг таблицы маршрута...")
         df = parse_main_route_table(doc1)
 
+        # Создание листа Main_Route_Grid
         ws2 = wb.create_sheet(title="Main_Route_Grid")
 
+        # Стили
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         align_center = Alignment(horizontal="center", vertical="center")
@@ -715,7 +1043,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
             for c_idx, value in enumerate(row, start=1):
                 ws2.cell(row=r_idx, column=c_idx, value=value)
 
-        # Стилизация первой строки
+        # Стилизация и объединение строки 1
         num_cols = len(df.columns)
         for col_idx in range(1, num_cols + 1):
             cell = ws2.cell(row=1, column=col_idx)
@@ -723,7 +1051,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
             cell.font = header_font
             cell.alignment = align_center
 
-        # Объединение ячеек
+        # Объединение и значения
         ws2.merge_cells(start_row=1, start_column=3, end_row=1, end_column=4)
         ws2.cell(row=1, column=3, value="MAG")
 
@@ -766,12 +1094,14 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
             ws3['A1'] = "Таблица аэропортов не найдена в документе"
         else:
             ws3 = wb.create_sheet(title="Airport_Table")
+
             headers = ["", "AIRPORT", "ETA", "WX", "TWR/CTAF", "CLR", "GND", "ELEV", "RWY", "LONGEST"]
             if len(headers) > len(df_airport.columns):
                 headers = headers[:len(df_airport.columns)]
             elif len(headers) < len(df_airport.columns):
                 headers += [""] * (len(df_airport.columns) - len(headers))
 
+            # Заголовки
             yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             bold_font_yellow = Font(bold=True)
 
@@ -780,6 +1110,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
                 cell.font = bold_font_yellow
                 cell.fill = yellow_fill
 
+            # Данные
             for r_idx, row in enumerate(dataframe_to_rows(df_airport, index=False, header=False), start=2):
                 for c_idx, value in enumerate(row, start=1):
                     ws3.cell(row=r_idx, column=c_idx, value=value)
@@ -799,7 +1130,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
                 ws3.column_dimensions[get_column_letter(col_idx)].width = adjusted_width
 
         # === ЛИСТ 4: AIRPORT MAPS ===
-        print("Извлечение карт аэропортов с последней страницы...")
+        print("Извлечение карт аэропортов...")
         text_A1, text_A28, img_buffers = extract_airport_maps(doc1)
         
         ws4 = wb.create_sheet(title="Airport_Maps")
@@ -821,10 +1152,12 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
 
         ws4['A28'] = text_A28
         ws4['A28'].font = Font(bold=True)
+
         ws4.column_dimensions['A'].width = 70
 
-        # === ЛИСТ 5: ForeFlight ===
-        print("Создание листа 'ForeFlight' из файла Takeoff...")
+        # === ЛИСТ 5: ForeFlight (из Takeoff файла) ===
+        print("Создание листа 'ForeFlight' из Takeoff файла...")
+        
         page_ff = doc2[0]
         left_lines, right_lines = parse_document_with_simple_split(page_ff, "All Engines Operating")
 
@@ -878,6 +1211,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
                     var_values_col6.append("")
 
         max_var_len = max(len(var_names_col3), len(var_names_col5))
+
         var_names_col3 += [""] * (max_var_len - len(var_names_col3))
         var_values_col4 += [""] * (max_var_len - len(var_values_col4))
         var_names_col5 += [""] * (max_var_len - len(var_names_col5))
@@ -902,6 +1236,7 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
         df_combined = pd.concat([df_arrays, df_vars], axis=1, sort=False).fillna("")
 
         ws5 = wb.create_sheet(title="ForeFlight")
+
         for r_idx, row in enumerate(dataframe_to_rows(df_combined, index=False, header=True), 1):
             for c_idx, value in enumerate(row, 1):
                 ws5.cell(row=r_idx, column=c_idx, value=value)
@@ -911,27 +1246,13 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
 
         # === ЛИСТ 6: Generated_Sheet ===
         print("Создание листа 'Generated_Sheet'...")
-        new_sheet_name = "Generated_Sheet"
-        if new_sheet_name in wb.sheetnames:
-            wb.remove(wb[new_sheet_name])
-        ws6 = wb.create_sheet(title=new_sheet_name)
+        
+        # Извлекаем скриншот для вставки
+        screenshot_buffer = extract_screenshot_for_generated_sheet(doc1)
+        
+        # Создаем лист Generated_Sheet с вставкой скриншота
+        create_generated_sheet(wb, ws1, ws2, ws3, ws4, ws5, screenshot_buffer)
 
-        # Вставка изображения в начало листа
-        print("Вставка изображения в лист 'Generated_Sheet'...")
-        insert_image_to_generated_sheet(doc1, ws6)
-
-        # Смещение для таблицы (после изображения)
-        offset_rows = 7
-        
-        # Продолжение создания таблицы как в оригинальном скрипте
-        # ... (здесь должен быть код для создания таблицы Generated_Sheet)
-        # ВАЖНО: Поскольку код очень длинный, возможно, стоит разделить его на отдельные функции
-        
-        # Сохраняем workbook
-        excel_bytes = io.BytesIO()
-        wb.save(excel_bytes)
-        excel_bytes.seek(0)
-        
         print(f"✅ Обработка завершена! Создан Excel файл с 6 листами.")
         
     finally:
@@ -939,9 +1260,13 @@ def process_two_pdfs(file1_bytes, file2_bytes, file1_name, file2_name):
         doc1.close()
         doc2.close()
 
+    # Сохраняем workbook в bytes
+    excel_bytes = io.BytesIO()
+    wb.save(excel_bytes)
+    excel_bytes.seek(0)
+    
     return excel_bytes.getvalue()
 
-# Функция для обратной совместимости
 def process(input_path, output_path):
     """Функция для обратной совместимости (не используется для двух файлов)"""
     raise NotImplementedError("Для обработки двух файлов используйте process_two_pdfs")
